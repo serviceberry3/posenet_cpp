@@ -1,0 +1,1 @@
+For all those of you needing an easy-access API for the using the Tensorflow Posenet posenet_model.tflite file in C++code, here it is. It's modeled on Tensorflow's example Java file linked in the description.
