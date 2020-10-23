@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include "c_api.h"
 #include "delegate.h"
+#include <opencv2/core/core.hpp>
+#include <android/log.h>
+#define LOG_TAG "POSENET.CC"
+
+#define LOG(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
 
 
 //std::unique_ptr<TfLiteInterpreter> interpreter;
@@ -155,20 +160,54 @@ class Posenet  {
         return interpreter;
 }
 
+    //clean up the interpreter and possibly the gpuDelegate
     void close() {
         //delete the interpreter we made
         TfLiteInterpreterDelete(interpreter);
         TfLiteInterpreterOptionsDelete(options);
         TfLiteModelDelete(model);
     }
-/*
-  //clean up the interpreter and possibly the gpuDelegate
-  override fun close() {
-    interpreter?.close()
-    interpreter = null
-    gpuDelegate?.close()
-    gpuDelegate = null
+
+   //Scale the image pixels to a float array of [-1,1] values.
+   std::vector<float> initInputArray(cv::Mat incomingImg) { //the mat will be in RGBA format
+    int bytesPerChannel = 4;
+    int inputChannels = incomingImg.channels();
+    LOG("incoming Mat has %d channels", inputChannels);
+    int batchSize = 1;
+
+    int cols = incomingImg.cols;
+    int rows = incomingImg.rows;
+
+    //allocate a float array for all 3 input channels (for each channel allocate space for the entire Mat)
+    std::vector<float> inputBuffer(batchSize * bytesPerChannel * cols * rows * inputChannels / 4, 0); //div by 4 because we were doing bytes
+
+    float mean = 128.0;
+    float std = 128.0;
+
+    //create an int array that's size of the bitmap
+    //int intValues[cols * rows];
+
+    //convert the incoming image to 32-bit signed integers (combines the channels)
+    incomingImg.convertTo(incomingImg, CV_32SC1);
+
+    //get pointer to the data (array of ints)
+    const int* intValues = (int*) incomingImg.data;
+
+    //get all pixels from Mat and store them in intValues
+    //bitmap.getPixels(intValues, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+
+    //put one float into the ByteBuffer for I'm guessing each input channel
+    for (int i = 0; i < cols * rows; i++) {
+      inputBuffer.push_back(((intValues[i] >> 16 & 0xFF) - mean) / std);
+      inputBuffer.push_back(((intValues[i] >> 8 & 0xFF) - mean) / std);
+      inputBuffer.push_back(((intValues[i] & 0xFF) - mean) / std);
+    }
+
+    return inputBuffer;
   }
+
+/*
+
 
  //Returns value within [0,1].
   private fun sigmoid(x: Float): Float {
@@ -176,38 +215,7 @@ class Posenet  {
   }
 
 
-   //Scale the image to a byteBuffer of [-1,1] values.
 
-  private fun initInputArray(bitmap: Bitmap): ByteBuffer {
-    val bytesPerChannel = 4
-    val inputChannels = 3
-    val batchSize = 1
-
-    //allocate a ByteBuffer for all 3 input channels (for each channel allocate space for the entire bitmap)
-    val inputBuffer = ByteBuffer.allocateDirect(batchSize * bytesPerChannel * bitmap.height * bitmap.width * inputChannels)
-
-    inputBuffer.order(ByteOrder.nativeOrder())
-
-    inputBuffer.rewind()
-
-    val mean = 128.0f
-    val std = 128.0f
-
-    //create an int array that's size of the bitmap
-    val intValues = IntArray(bitmap.width * bitmap.height)
-
-    //get all bitmap pixels and store them in intValues
-    bitmap.getPixels(intValues, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-
-    //put one float into the ByteBuffer for I'm guessing each input channel
-    for (pixelValue in intValues) {
-      inputBuffer.putFloat(((pixelValue shr 16 and 0xFF) - mean) / std)
-      inputBuffer.putFloat(((pixelValue shr 8 and 0xFF) - mean) / std)
-      inputBuffer.putFloat(((pixelValue and 0xFF) - mean) / std)
-    }
-
-    return inputBuffer
-  }
 
   // Preload and memory map the model file, returning a MappedByteBuffer containing the model.
   private fun loadModelFile(path: String, context: Context): MappedByteBuffer {
