@@ -19,7 +19,13 @@ namespace ORB_SLAM2
 //TfLiteInterpreter interpreter;
 
 
+std::vector<KeyPoint> Person::getKeyPoints() {
+    return keyPoints;
+}
 
+float Person::getScore() {
+    return score;
+}
 
 
 
@@ -158,7 +164,7 @@ Posenet::Posenet()
     }
 
     //Scale the image pixels to a float array of [-1,1] values.
-    std::vector<float> Posenet::initInputArray(cv::Mat incomingImg) { //the mat will be in RGBA format WRONG it will be in grayscale!!
+    std::vector<float> Posenet::initInputArray(const cv::Mat &incomingImg) { //the mat will be in RGBA format WRONG it will be in grayscale!!
         int bytesPerChannel = 4;
         int inputChannels = incomingImg.channels();
 
@@ -206,8 +212,10 @@ Posenet::Posenet()
         int Len = rows * cols * inputChannels;
 
         for (int i = 0; i < Len; i++) {
-            inputBuffer.push_back((in[i] - 127.5) / 127.5);
+            inputBuffer[i] = (((float)in[i] - 127.5f) / 127.5f);
         }
+
+        LOG("First three floats in input are %f, %f, %f", inputBuffer[0], inputBuffer[1], inputBuffer[2]);
 
         return inputBuffer;
   }
@@ -389,14 +397,15 @@ Posenet::Posenet()
         outputMap[3] = displacementsBwd;
 
 
-    return outputMap;
+       return outputMap;
   }
 
 
-  void Posenet::readFlatIntoMultiDimensionalArray(float* data, std::vector<std::vector<std::vector<std::vector<float>>>> map) {
+  void Posenet::readFlatIntoMultiDimensionalArray(float* data, std::vector<std::vector<std::vector<std::vector<float>>>> &map) {
         //the map is already initialized, so we'll know what dimensions/cutoffs we're looking for
 
         int counter = 0;
+
 
         //topmost level (should just be one)
         for (int l0 = 0; l0 < map.size(); l0++) {
@@ -407,6 +416,7 @@ Posenet::Posenet()
                     //lowest level (i.e. should be 17, 32, or 34)
                     for (int l3 = 0; l3 < map[0][0][0].size(); l3++) {
                         //copy data into the 4D map
+                        //LOG("This data is %f", data[counter]);
                         map[l0][l1][l2][l3] = data[counter++];
                     }
                 }
@@ -415,8 +425,8 @@ Posenet::Posenet()
   }
 
 
-  void Posenet::runForMultipleInputsOutputs(std::vector<float> inputs
-  , std::unordered_map<int, std::vector<std::vector<std::vector<std::vector<float>>>> > outputs) {
+  void Posenet::runForMultipleInputsOutputs(std::vector<float> &inputs
+  , std::unordered_map<int, std::vector<std::vector<std::vector<std::vector<float>>>> > &outputs) {
 
         //this.inferenceDurationNanoseconds = -1L;
 
@@ -482,7 +492,8 @@ Posenet::Posenet()
 
 
                 //iterate over each key-value pair in the output map (should iterate 4 times)
-                for (std::pair<int, std::vector<std::vector<std::vector<std::vector<float>> > > > element : outputs) {
+                //for (std::pair<int, std::vector<std::vector<std::vector<std::vector<float>> > > > element : outputs) {
+                for (auto& element : outputs) {
                     LOG("Running pair iteration...");
                     //copy output tensor data into output map
                     const TfLiteTensor* curr_output_tensor = TfLiteInterpreterGetOutputTensor(interpreter, element.first);
@@ -516,7 +527,7 @@ Posenet::Posenet()
                     readFlatIntoMultiDimensionalArray(data, element.second);
 
 
-
+                    //LOG("Testing readFlatIntoMult this float %f", element.second
 
                     ctr++;
                     LOG("Iteration #%d complete", ctr);
@@ -539,7 +550,7 @@ Posenet::Posenet()
 
 
 
- Person Posenet::estimateSinglePose(cv::Mat img, TfLiteInterpreter* pInterpreter) {
+ Person Posenet::estimateSinglePose(const cv::Mat &img, TfLiteInterpreter* pInterpreter) {
     clock_t estimationStartTimeNanos = clock();
 
     std::vector<float> inputArray = initInputArray(img);
@@ -584,33 +595,43 @@ Posenet::Posenet()
     //get dimensions of levels 1 and 2 of heatmap (should be 9 and 9)
     int height = heatmaps[0].size();
     int width = heatmaps[0][0].size();
+    LOG("Heatmap dimensions are %d x %d", height, width);
 
     //get dim of level 3 of heatmap (should be 17, for 17 joints found by the model)
     int numKeypoints = heatmaps[0][0][0].size();
+    LOG("numKeypoints is %d", numKeypoints);
 
     //Finds the (row, col) locations of where the keypoints are most likely to be.
-    std::vector<std::pair<int, int>> keypointPositions(numKeypoints, std::pair<int, int>(0, 0));
+    std::vector<std::pair<int, int>> keypointPositions(numKeypoints);
 
 
     //iterate over the number of keypoints (17?)
     for (int keypoint = 0; keypoint < numKeypoints; keypoint++) {
+      //take an initial max value
       float maxVal = heatmaps[0][0][0][keypoint];
 
+      //initialize these maxes to 0
       int maxRow = 0;
       int maxCol = 0;
 
       //iterate over every vector in our 9x9 grid of float vectors
       for (int row = 0; row < height; row++) {
         for (int col = 0; col < width; col++) {
+            float test = heatmaps[0][row][col][keypoint];
+            //LOG("Testing float %f against maxVal %f", test, maxVal);
+
             //check the float at this joint slot at this place in our 9x9 grid
             if (heatmaps[0][row][col][keypoint] > maxVal) {
                 //if this float was higher than our running max, then we accept this location as our current "most likely to hold joint" location
+                //LOG("Replacing maxVal");
                 maxVal = heatmaps[0][row][col][keypoint];
                 maxRow = row;
                 maxCol = col;
           }
         }
       }
+
+     LOG("Maxrow finished as %d", maxRow);
 
       //add the location that was most likely to contain this joint point to our keypoint positions array
       keypointPositions[keypoint] = std::pair<int, int>(maxRow, maxCol);
@@ -629,14 +650,16 @@ Posenet::Posenet()
 
     for (int i = 0; i < numKeypoints; i++) {
         std::pair<int, int> thisKP = keypointPositions[i];
-        int positionY = thisKP.first;
-        int positionX = thisKP.second;
+
+        int positionY = thisKP.first; //which row
+        LOG("Got position Y as %d", positionY);
+        int positionX = thisKP.second; //which column
 
         //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (9 * 257)
-        yCoords[i] = (int)(positionY / (float)(height - 1) * img.rows + offsets[0][positionY][positionX][i]);
+        yCoords[i] = (int)(positionY / ((float)(height - 1)) * img.rows + offsets[0][positionY][positionX][i]);
 
         //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (9 * 257)
-        xCoords[i] = (int)(positionX / (float)(width - 1) * img.cols + offsets[0][positionY][positionX][i + numKeypoints]);
+        xCoords[i] = (int)(positionX / ((float)(width - 1)) * img.cols + offsets[0][positionY][positionX][i + numKeypoints]);
 
         //compute arbitrary confidence value between 0 and 1
         confidenceScores[i] = sigmoid(heatmaps[0][positionY][positionX][i]);
@@ -655,8 +678,11 @@ Posenet::Posenet()
         KeyPoint thisKeypoint = keypointList[i];
 
         thisKeypoint.bodyPart = static_cast<BodyPart>(i);
+
         thisKeypoint.position.x = (float)xCoords[i];
         thisKeypoint.position.y = (float)yCoords[i];
+
+        LOG("estimateSinglePose(): adding this keypoint at %d, %d", thisKeypoint.position.x, thisKeypoint.position.y);
 
         thisKeypoint.score = confidenceScores[i];
         totalScore += confidenceScores[i];
