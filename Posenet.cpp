@@ -184,6 +184,8 @@ namespace ORB_SLAM2
         int len = rows * cols * inputChannels;
         
         //subtract mean and divide by std dev before adding this input pixel value to the inputBuffer
+        //Model requires incoming imgs to have float values. Here we normalize them to be in range from 0 to 1 by subtracting
+        //default mean and dividing by default standard deviation.
         for (int i = 0; i < len; i++) {
             inputBuffer[i] = (((float)in[i] - 127.5f) / 127.5f);
         }
@@ -531,6 +533,14 @@ namespace ORB_SLAM2
         
         
         //***at this point the output data we need from the model is in outputMap
+
+        /*The output consist of 2 parts:
+        # - heatmaps (9,9,17) - corresponds to the probability of appearance of 
+        # each keypoint in the particular part of the image (9,9)(without applying sigmoid 
+        # function). Is used to locate the approximate position of the joint
+        # - offset vectors (9,9,34) is called offset vectors. Is used for more exact
+        #  calculation of the keypoint's position. First 17 of the third dimension correspond
+        # to the x coordinates and the second 17 of them correspond to the y coordinates*/
         
         std::vector<std::vector<std::vector<std::vector<float>>>> heatmaps = outputMap[0];
         std::vector<std::vector<std::vector<std::vector<float>>>> offsets = outputMap[1];
