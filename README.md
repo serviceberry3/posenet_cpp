@@ -1,3 +1,3 @@
-For all those of you needing an easy-access API for the using the Tensorflow Posenet posenet_model.tflite file in C++ code, here it is. It's modeled on Tensorflow's example Java file linked in the description.
+For all those of you needing an easy-access API for the using the Tensorflow Posenet posenet_model.tflite file in C++ code, here it is. It's modeled on Tensorflow's example Java file linked in the description. Compare this to my file infer_video_posenet.py in the videopose3d_android repo, which does everything this API does (running Posenet inference using TfLite) but using Python.
 
 NOTE: I'll be running speed tests comparing the use of 4D C++ std::vector<>'s versus regular 4D C arrays (float\*\*\*\*). It seems as though the speeds should be comparable, but I'm guessing primitive C arrays are the way to go.
