@@ -535,12 +535,27 @@ namespace ORB_SLAM2
         //***at this point the output data we need from the model is in outputMap
 
         /*The output consist of 2 parts:
-        # - heatmaps (9,9,17) - corresponds to the probability of appearance of 
-        # each keypoint in the particular part of the image (9,9)(without applying sigmoid 
-        # function). Is used to locate the approximate position of the joint
-        # - offset vectors (9,9,34) is called offset vectors. Is used for more exact
-        #  calculation of the keypoint's position. First 17 of the third dimension correspond
-        # to the x coordinates and the second 17 of them correspond to the y coordinates*/
+         - heatmaps (9,9,17) - corresponds to the probability of appearance of 
+         each keypoint in the particular part of the image (9,9)(without applying sigmoid 
+         function). Is used to locate the approximate position of the joint. (There are 17 heatmaps.)
+         - offset vectors (9,9,34) is called offset vectors. Is used for more exact
+          calculation of the keypoint's position. First 17 of the third dimension correspond
+         to the x coordinates and the second 17 of them correspond to the y coordinates
+
+        With heatmaps we can find approximate positions of the joints. After findingindex for maximum value we
+        upscale it w/output stride value and size of input tensor. After that we can adjust positions w/offset vectors.
+
+        Output for parsing pseudocode:
+
+        for every keypoint in heatmap_data:
+            1. find indices of max values in the 9x9 grid
+            2. calculate position of the keypoint in the image
+            3. adjust the position with offset_data
+            4. get the maximum probability
+ 
+            if max probability > threshold:
+            if the position lies inside the shape of resized image:
+                set the flag for visualisation to True*/
         
         std::vector<std::vector<std::vector<std::vector<float>>>> heatmaps = outputMap[0];
         std::vector<std::vector<std::vector<std::vector<float>>>> offsets = outputMap[1];
@@ -570,13 +585,13 @@ namespace ORB_SLAM2
             //iterate over every vector in our 9x9 grid of float vectors
             for (int row = 0; row < height; row++) {
                 for (int col = 0; col < width; col++) {
-                    float test = heatmaps[0][row][col][keypoint];
+                    //check the float at this joint slot at this place in our 9x9 grid, which is prob that the joint appears in this cell
+                    float testVal = heatmaps[0][row][col][keypoint];
                     
-                    //check the float at this joint slot at this place in our 9x9 grid
-                    if (heatmaps[0][row][col][keypoint] > maxVal) {
+                    if (testVal > maxVal) {
                         //if this float was higher than our running max, then we accept this location as our current "most likely to hold 
                         //joint" location
-                        maxVal = heatmaps[0][row][col][keypoint];
+                        maxVal = testVal;
                         maxRow = row;
                         maxCol = col;
                     }
@@ -588,27 +603,30 @@ namespace ORB_SLAM2
         }
         
         
-        
         //Calculating the x and y coordinates of the keypoints with offset adjustment.
         std::vector<int> xCoords(numKeypoints);
         
         std::vector<int> yCoords(numKeypoints);
         
-        
+        //Initialize float vector to store confidence scores of each keypoint
         std::vector<float> confidenceScores(numKeypoints);
         
-        
+        //iterate over all keypoints
         for (int i = 0; i < numKeypoints; i++) {
+            //get position of the keypoint (which cell contains max probability for this specific joint)
             std::pair<int, int> thisKP = keypointPositions[i];
             
             int positionY = thisKP.first; //which row
             int positionX = thisKP.second; //which column
             
-            //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (9 * 257)
+            //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (8 * 257)
             yCoords[i] = (int)(positionY / ((float)(height - 1.0f)) * img.rows + offsets[0][positionY][positionX][i]);
+
+            //NOTE: 8 comes from fact that row/col indices start at 0
             
-            //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (9 * 257)
+            //store the y coordinate of these keypoint in the image as calculated offset + the most likely position of this joint div by (8 * 257)
             xCoords[i] = (int)(positionX / ((float)(width - 1.0f)) * img.cols + offsets[0][positionY][positionX][i + numKeypoints]);
+            //(need to index into the second 17 of offset vectors' third dim as noted above)
             
             //compute arbitrary confidence value between 0 and 1 for this keypoint
             confidenceScores[i] = sigmoid(heatmaps[0][positionY][positionX][i]);
@@ -638,9 +656,10 @@ namespace ORB_SLAM2
             totalScore += confidenceScores[i];
         }
         
-        
+        //store the list of keypoints for the person object
         person.keyPoints = keypointList;
         
+        //calculate overall score of person as the total for all joints divided by number of joints (avg score)
         person.score = totalScore / numKeypoints;
         
         return person;
